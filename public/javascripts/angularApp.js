@@ -11,7 +11,10 @@ function($scope, posts)
     $scope.addPost = function() //home.html, access $scope, function() = addPost()
     {
         if(!$scope.title || $scope.title === '') { return; } //Blank input declined
-        
+        posts.create({
+            title: $scope.title,
+            link: $scope.link,
+        });
         $scope.index = $scope.posts.length ; //i.e. 1 post - .length = 1, 1st post: 0, 2st post: 1
         $scope.posts.push({title: $scope.title, link: $scope.link, upvotes: 0, index: $scope.index, comments:[]}); //append
         // Array[ ] ---> pushed ---> Array[1 item], ---> pushed ---> Array[2 item]
@@ -24,19 +27,20 @@ function($scope, posts)
     };
     
     //Upvoting function
-    $scope.incrementUpvotes = function(post) 
-    {
-        post.upvotes += 1;
+    $scope.incrementUpvotes = function(post) {
+        post.upvotes(post);
     };
+    
     
 }]);
 
 //PostsCtrl Controller
 app.controller('PostsCtrl', [
-'$scope', '$stateParams', 'posts',
-function($scope, $stateParams, posts)
-{
-    $scope.post = posts.posts[$stateParams.id]; //posts[title, upvote, id, comments]
+'$scope',
+'posts',
+'post',
+function($scope, posts, post){
+    $scope.post = post; //posts[title, upvote, id, comments]
 
     //    /posts/{id}/details/:type <--- state url       /posts/{id}
     //    navigate url : /posts/1/details/a            /posts/1
@@ -46,11 +50,11 @@ function($scope, $stateParams, posts)
     $scope.addComment = function() 
     {
         if ($scope.body === '') {return;}
-        $scope.post.comments.push(
-        {
+        posts.addComment(post._id, {
             body: $scope.body,
             author: 'user',
-            upvotes: 0
+        }).success(function(comment){
+            $scope.post.comments.push(comment);
         });
         $scope.body = '';
     };
@@ -58,15 +62,15 @@ function($scope, $stateParams, posts)
     //Upvoting function
     $scope.incrementUpvotes = function(comment) 
     {
-        comment.upvotes += 1;
+        posts.upvotesComment(post, comment);
     };
     
 }]);
 
 
 //Service Factory
-app.factory('posts', [ //Name:posts contains object o, object o contains posts[array]
-function()
+app.factory('posts', ['$http', function($http){ //Name:posts contains object o, object o contains posts[array]
+
 {
   var o = {posts: 
     [
@@ -76,27 +80,74 @@ function()
         {title: 'post 3', upvotes: 9, index: 3,comments:[]},
         {title: 'post 4', upvotes: 4, index: 4,comments:[]}
     ]};
+  
+  o.getAll = function(){
+      return $http.get('/posts').success(function(data){
+          angular.copy(data, o.posts);
+      });
+  };
+  
+  o.create = function(post) {
+      return $http.post('/posts', post).success(function(data){
+          o.posts.push(data);
+      });
+  };
+  
+  o.upvote = function(post){
+      return $http.put('/post' + post._id + '/upvote')
+      .success(function(data){
+          post.upvotes += 1;
+      });
+  };
+  
+  o.get = function(id){
+      return $http.get('/posts' + id).then(function(res){
+          return res.data;
+      });
+  };
+  
+  o.addComment = function(id, comment){
+      return $http.post('/posts' + id + '/comments', comment);
+  };
+  
+  o.upvoteComment = function(post, comment){
+      return $http.put('/posts' + post._id + '/comments' + comment._id +
+      '/upvote')
+      .success(function(data){
+          comment.upvotes += 1;
+      });
+  };
+
   return o;
-}]);
 
 //UI-router config
 app.config([
 '$stateProvider', '$urlRouterProvider',
 function($stateProvider, $urlRouterProvider)   //Forum --> post(), comment()
 {
-    $stateProvider.state('home',    // <ui-view></ui-view> 
-    {
+    $stateProvider.state('home',{
         url: '/home',
         templateUrl: '/home.html',
-        controller: 'MainCtrl'
-    });
+        controller: 'MainCtrl',
+        resolve:{
+            postPromise: ['posts', function(posts){
+                return posts.getAll();
+            }]
+        }
+    })
     
-    $stateProvider.state('posts', 
-    {
-        url: '/posts/{id}',  // #/posts/{{post.index}}   {id} get {{post.index}}
+    $stateProvider.state('posts',{
+        url: 'posts/{id}',
         templateUrl: '/posts.html',
-        controller: 'PostsCtrl'
+        controller: 'PostCtrl',
+        resolve:{
+            post: ['$stateParams', 'posts', function($stateParams, posts){
+                return posts.get($stateParams.id);
+            }]
+        }
     });
+
+    
     
     $urlRouterProvider.otherwise('home');
 }]);
